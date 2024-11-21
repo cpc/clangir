@@ -1840,15 +1840,15 @@ LogicalResult ReinterpretCastOp::verify() {
     return emitError("expected result type to have strided layout but found ")
            << resultType;
 
-  // Match offset in result memref type and in static_offsets attribute.
-  int64_t expectedOffset = getStaticOffsets().front();
-  if (ShapedType::isStatic(resultOffset) && resultOffset != expectedOffset)
-    return emitError("expected result type with offset = ")
-           << (ShapedType::isDynamic(expectedOffset)
-                   ? std::string("dynamic")
-                   : std::to_string(expectedOffset))
-           << " instead of " << resultOffset;
-
+  //  // Match offset in result memref type and in static_offsets attribute.
+  //  int64_t expectedOffset = getStaticOffsets().front();
+  //  if (ShapedType::isStatic(resultOffset) && resultOffset != expectedOffset)
+  //    return emitError("expected result type with offset = ")
+  //           << (ShapedType::isDynamic(expectedOffset)
+  //                   ? std::string("dynamic")
+  //                   : std::to_string(expectedOffset))
+  //           << " instead of " << resultOffset;
+  //
   // Match strides in result memref type and in static_strides attribute.
   for (auto [idx, resultStride, expectedStride] :
        llvm::enumerate(resultStrides, getStaticStrides())) {

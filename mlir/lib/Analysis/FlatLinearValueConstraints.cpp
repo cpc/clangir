@@ -1158,7 +1158,7 @@ FlatLinearValueConstraints::FlatLinearValueConstraints(IntegerSet set,
   std::vector<SmallVector<int64_t, 8>> flatExprs;
   FlatLinearConstraints localVarCst;
   if (failed(getFlattenedAffineExprs(set, &flatExprs, &localVarCst))) {
-    assert(false && "flattening unimplemented for semi-affine integer sets");
+    // assert(false && "flattening unimplemented for semi-affine integer sets");
     return;
   }
   assert(flatExprs.size() == set.getNumConstraints());

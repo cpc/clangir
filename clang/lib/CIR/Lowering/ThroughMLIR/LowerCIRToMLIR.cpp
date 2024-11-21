@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -378,15 +379,23 @@ public:
     SmallVector<mlir::Value> indices;
     SmallVector<mlir::Operation *> eraseList;
     mlir::memref::LoadOp newLoad;
-    if (findBaseAndIndices(adaptor.getAddr(), base, indices, eraseList,
-                           rewriter)) {
+    auto initialBase = adaptor.getAddr();
+    if (auto castOp = dyn_cast<mlir::UnrealizedConversionCastOp>(
+            initialBase.getDefiningOp())) {
+      initialBase = castOp.getOperand(0);
+    }
+    if (auto castOp = dyn_cast<mlir::UnrealizedConversionCastOp>(
+            initialBase.getDefiningOp())) {
+      initialBase = castOp.getOperand(0);
+    }
+    if (findBaseAndIndices(initialBase, base, indices, eraseList, rewriter)) {
       newLoad = mlir::memref::LoadOp::create(rewriter, op.getLoc(), base,
                                              indices, op.getIsNontemporal());
-      eraseIfSafe(op.getAddr(), base, eraseList, rewriter);
+      // eraseIfSafe(initialBase, base, eraseList, rewriter);
     } else
-      newLoad = mlir::memref::LoadOp::create(
-          rewriter, op.getLoc(), adaptor.getAddr(), mlir::ValueRange{},
-          op.getIsNontemporal());
+      newLoad = mlir::memref::LoadOp::create(rewriter, op.getLoc(), initialBase,
+                                             mlir::ValueRange{},
+                                             op.getIsNontemporal());
 
     // Convert adapted result to its original type if needed.
     mlir::Value result = emitFromMemory(rewriter, op, newLoad.getResult());
@@ -408,15 +417,22 @@ public:
 
     // Convert adapted value to its memory type if needed.
     mlir::Value value = emitToMemory(rewriter, op, adaptor.getValue());
-    if (findBaseAndIndices(adaptor.getAddr(), base, indices, eraseList,
-                           rewriter)) {
+    auto initialBase = adaptor.getAddr();
+    if (auto castOp = dyn_cast<mlir::UnrealizedConversionCastOp>(
+            initialBase.getDefiningOp())) {
+      initialBase = castOp.getOperand(0);
+    }
+    if (auto castOp = dyn_cast<mlir::UnrealizedConversionCastOp>(
+            initialBase.getDefiningOp())) {
+      initialBase = castOp.getOperand(0);
+    }
+    if (findBaseAndIndices(initialBase, base, indices, eraseList, rewriter)) {
       rewriter.replaceOpWithNewOp<mlir::memref::StoreOp>(
           op, value, base, indices, op.getIsNontemporal());
-      eraseIfSafe(op.getAddr(), base, eraseList, rewriter);
+      // eraseIfSafe(initialBase, base, eraseList, rewriter);
     } else
       rewriter.replaceOpWithNewOp<mlir::memref::StoreOp>(
-          op, value, adaptor.getAddr(), mlir::ValueRange{},
-          op.getIsNontemporal());
+          op, value, initialBase, mlir::ValueRange{}, op.getIsNontemporal());
     return mlir::LogicalResult::success();
   }
 };
@@ -702,7 +718,26 @@ public:
           fnType.getNumInputs());
 
       for (const auto &argType : enumerate(fnType.getInputs())) {
-        auto convertedType = typeConverter->convertType(argType.value());
+        mlir::Type convertedType = nullptr;
+        if (auto ptrTy = mlir::dyn_cast<cir::PointerType>(argType.value())) {
+          auto ty = typeConverter->convertType(ptrTy.getPointee());
+          if (!ty)
+            return mlir::failure();
+          if (isa<cir::ArrayType>(ptrTy.getPointee()))
+            convertedType = ty;
+          if (isa<cir::PointerType>(ptrTy.getPointee())) {
+            convertedType = mlir::MemRefType::get({}, ty);
+            // mlir::MemRefLayoutAttrInterface(),
+            // ptrTy.getAddrSpace());
+          } else {
+            convertedType =
+                mlir::MemRefType::get({mlir::ShapedType::kDynamic}, ty);
+            // mlir::MemRefLayoutAttrInterface(),
+            // ptrTy.getAddrSpace());
+          }
+        } else {
+          convertedType = typeConverter->convertType(argType.value());
+        }
         if (!convertedType)
           return mlir::failure();
         signatureConversion.addInputs(argType.index(), convertedType);
@@ -722,6 +757,15 @@ public:
                                    resultType ? mlir::TypeRange(resultType)
                                               : mlir::TypeRange()),
           passThroughAttrs);
+
+      if (op.isPrivate())
+        fn.setSymVisibility("private");
+
+      auto cConv = op.getCallingConv();
+      if (cConv == cir::CallingConv::SpirKernel) {
+        fn->setAttr(mlir::gpu::GPUDialect::getKernelFuncAttrName(),
+                    mlir::UnitAttr::get(op.getContext()));
+      }
 
       if (failed(rewriter.convertRegionTypes(&op.getBody(), *typeConverter,
                                              &signatureConversion)))
@@ -744,36 +788,73 @@ public:
     auto input = adaptor.getInput();
     auto type = getTypeConverter()->convertType(op.getType());
 
-    switch (op.getKind()) {
-    case cir::UnaryOpKind::Inc: {
-      auto One = mlir::arith::ConstantOp::create(
-          rewriter, op.getLoc(), mlir::IntegerAttr::get(type, 1));
-      rewriter.replaceOpWithNewOp<mlir::arith::AddIOp>(op, type, input, One);
-      break;
-    }
-    case cir::UnaryOpKind::Dec: {
-      auto One = mlir::arith::ConstantOp::create(
-          rewriter, op.getLoc(), mlir::IntegerAttr::get(type, 1));
-      rewriter.replaceOpWithNewOp<mlir::arith::SubIOp>(op, type, input, One);
-      break;
-    }
-    case cir::UnaryOpKind::Plus: {
-      rewriter.replaceOp(op, op.getInput());
-      break;
-    }
-    case cir::UnaryOpKind::Minus: {
-      auto Zero = mlir::arith::ConstantOp::create(
-          rewriter, op.getLoc(), mlir::IntegerAttr::get(type, 0));
-      rewriter.replaceOpWithNewOp<mlir::arith::SubIOp>(op, type, Zero, input);
-      break;
-    }
-    case cir::UnaryOpKind::Not: {
-      auto MinusOne = mlir::arith::ConstantOp::create(
-          rewriter, op.getLoc(), mlir::IntegerAttr::get(type, -1));
-      rewriter.replaceOpWithNewOp<mlir::arith::XOrIOp>(op, type, MinusOne,
-                                                       input);
-      break;
-    }
+    if (isa<mlir::IntegerType>(type)) {
+      switch (op.getKind()) {
+      case cir::UnaryOpKind::Inc: {
+        auto One = mlir::arith::ConstantOp::create(
+            rewriter, op.getLoc(), mlir::IntegerAttr::get(type, 1));
+        rewriter.replaceOpWithNewOp<mlir::arith::AddIOp>(op, type, input, One);
+        break;
+      }
+      case cir::UnaryOpKind::Dec: {
+        auto One = mlir::arith::ConstantOp::create(
+            rewriter, op.getLoc(), mlir::IntegerAttr::get(type, 1));
+        rewriter.replaceOpWithNewOp<mlir::arith::SubIOp>(op, type, input, One);
+        break;
+      }
+      case cir::UnaryOpKind::Plus: {
+        rewriter.replaceOp(op, op.getInput());
+        break;
+      }
+      case cir::UnaryOpKind::Minus: {
+        auto Zero = mlir::arith::ConstantOp::create(
+            rewriter, op.getLoc(), mlir::IntegerAttr::get(type, 0));
+        rewriter.replaceOpWithNewOp<mlir::arith::SubIOp>(op, type, Zero, input);
+        break;
+      }
+      case cir::UnaryOpKind::Not: {
+        auto MinusOne = mlir::arith::ConstantOp::create(
+            rewriter, op.getLoc(), mlir::IntegerAttr::get(type, -1));
+        rewriter.replaceOpWithNewOp<mlir::arith::XOrIOp>(op, type, MinusOne,
+                                                         input);
+        break;
+      }
+      }
+    } else if (isa<mlir::FloatType>(type)) {
+      auto floattype = cast<mlir::FloatType>(type);
+      switch (op.getKind()) {
+      case cir::UnaryOpKind::Inc: {
+        auto One = mlir::arith::ConstantFloatOp::create(
+            rewriter, op.getLoc(), floattype,
+            mlir::APFloat(floattype.getFloatSemantics(), 1));
+        rewriter.replaceOpWithNewOp<mlir::arith::AddFOp>(op, floattype, input,
+                                                         One);
+        break;
+      }
+      case cir::UnaryOpKind::Dec: {
+        auto One = mlir::arith::ConstantFloatOp::create(
+            rewriter, op.getLoc(), floattype,
+            mlir::APFloat(floattype.getFloatSemantics(), 1));
+        rewriter.replaceOpWithNewOp<mlir::arith::SubFOp>(op, floattype, input,
+                                                         One);
+        break;
+      }
+      case cir::UnaryOpKind::Plus: {
+        rewriter.replaceOp(op, op.getInput());
+        break;
+      }
+      case cir::UnaryOpKind::Minus: {
+        rewriter.replaceOpWithNewOp<mlir::arith::NegFOp>(op, floattype, input);
+        break;
+      }
+      case cir::UnaryOpKind::Not: {
+        return mlir::emitError(op.getLoc())
+               << "Unary Not operation not defined for floating point ops";
+      }
+      }
+    } else {
+      mlir::emitError(op.getLoc())
+          << "Unary op only defined for integer or float ops";
     }
 
     return mlir::LogicalResult::success();
@@ -1461,17 +1542,47 @@ public:
   mlir::LogicalResult
   matchAndRewrite(cir::PtrStrideOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    if (!isCastArrayToPtrConsumer(op))
-      return mlir::failure();
-    if (!isLoadStoreOrCastArrayToPtrProduer(op))
-      return mlir::failure();
-    auto baseOp =
-        adaptor.getBase().getDefiningOp<mlir::memref::ReinterpretCastOp>();
-    if (!baseOp)
-      return mlir::failure();
-    auto base = baseOp->getOperand(0);
-    auto dstType = op.getType();
-    auto newDstType = llvm::cast<mlir::MemRefType>(convertTy(dstType));
+    mlir::Value base;
+    auto baseOp = adaptor.getBase().getDefiningOp();
+    auto blockArg = dyn_cast<mlir::BlockArgument>(adaptor.getBase());
+    bool isCastArrayConsumer = isCastArrayToPtrConsumer(op);
+    if (blockArg) {
+      base = adaptor.getBase();
+    } else {
+      if (!baseOp)
+        return mlir::failure();
+      if (isCastArrayConsumer) {
+        if (!isa<mlir::memref::ReinterpretCastOp>(baseOp))
+          return mlir::failure();
+        base = baseOp->getOperand(0);
+      } else {
+        base = baseOp->getResult(0);
+      }
+    }
+    auto dstType = mlir::cast<mlir::MemRefType>(base.getType());
+    mlir::MemRefType newDstType;
+    llvm::SmallVector<mlir::OpFoldResult, 4> newSizes = {};
+    llvm::SmallVector<mlir::OpFoldResult, 4> newStrides = {};
+    switch (dstType.getRank()) {
+    case 0:
+      newDstType = dstType;
+      break;
+    case 1:
+      newDstType = mlir::MemRefType::get({}, dstType.getElementType());
+      break;
+    default: {
+      auto originalShape = dstType.getShape();
+      llvm::ArrayRef<int64_t> newShape(originalShape.begin() + 1,
+                                       originalShape.end());
+      newDstType = mlir::MemRefType::get(newShape, dstType.getElementType());
+      for (auto dim : newShape) {
+        newSizes.push_back(mlir::IntegerAttr::get(
+            mlir::IntegerType::get(getContext(), 64), dim));
+        newStrides.push_back(mlir::IntegerAttr::get(
+            mlir::IntegerType::get(getContext(), 64), 1));
+      }
+    }
+    }
     auto stride = adaptor.getStride();
     auto indexType = rewriter.getIndexType();
     // Generate casting if the stride is not index type.
@@ -1479,9 +1590,9 @@ public:
       stride = mlir::arith::IndexCastOp::create(rewriter, op.getLoc(),
                                                 indexType, stride);
     rewriter.replaceOpWithNewOp<mlir::memref::ReinterpretCastOp>(
-        op, newDstType, base, stride, mlir::ValueRange{}, mlir::ValueRange{},
-        llvm::ArrayRef<mlir::NamedAttribute>{});
-    rewriter.eraseOp(baseOp);
+        op, newDstType, base, stride, newSizes, newStrides);
+    if (isCastArrayConsumer)
+      rewriter.eraseOp(baseOp);
     return mlir::success();
   }
 };
@@ -1549,7 +1660,24 @@ static mlir::TypeConverter prepareTypeConverter() {
       return nullptr;
     if (isa<cir::ArrayType>(type.getPointee()))
       return ty;
-    return mlir::MemRefType::get({}, ty);
+    else {
+      if (isa<cir::PointerType>(type.getPointee())) {
+        return mlir::MemRefType::get({}, ty);
+        // mlir::MemRefLayoutAttrInterface(),
+        // type.getAddrSpace());
+      } else {
+        auto addrSpace = type.getAddrSpace();
+        if (addrSpace == cir::AddressSpace::OffloadGlobal ||
+            addrSpace == cir::AddressSpace::OffloadConstant) {
+          return mlir::MemRefType::get({mlir::ShapedType::kDynamic}, ty);
+          // mlir::MemRefLayoutAttrInterface(),
+          // type.getAddrSpace());
+
+        } else {
+          return mlir::MemRefType::get({}, ty);
+        }
+      }
+    }
   });
   converter.addConversion(
       [&](mlir::IntegerType type) -> mlir::Type { return type; });
@@ -1603,6 +1731,25 @@ static mlir::TypeConverter prepareTypeConverter() {
     auto ty = converter.convertType(type.getElementType());
     return mlir::VectorType::get(type.getSize(), ty);
   });
+  //  converter.addConversion([&](cir::StructType type) -> mlir::Type {
+  //    SmallVector<mlir::Type> structTypes;
+  //    switch (type.getKind()) {
+  //    case cir::StructType::Class:
+  //      // TODO(cir): This should be properly validated.
+  //    case cir::StructType::Struct:
+  //      for (auto ty : type.getMembers())
+  //        structTypes.push_back(convertTypeForMemory(converter, ty));
+  //      break;
+  //    // Unions are lowered as only the largest member.
+  //    case cir::StructType::Union: {
+  //      llvm_unreachable("NYI: Union lowering to MLIR");
+  //    }
+  //    }
+  //
+  //    //return mlir::TupleType::get(type.getContext(), structTypes);
+  //
+  //  });
+
   return converter;
 }
 

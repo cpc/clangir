@@ -472,6 +472,12 @@ bool mlir::affine::isValidSymbol(Value value, Region *region) {
     return true;
   }
 
+  if (auto indexCastOp = dyn_cast<arith::IndexCastOp>(defOp))
+    return affine::isValidSymbol(indexCastOp.getOperand(), region);
+
+  //  if (auto trunciOp = dyn_cast<arith::TruncIOp>(defOp))
+  //    return affine::isValidSymbol(trunciOp.getOperand(), region);
+  //
   // Dim op results could be valid symbols at any level.
   if (auto dimOp = dyn_cast<ShapedDimOpInterface>(defOp))
     return isDimOpValidSymbol(dimOp, region);

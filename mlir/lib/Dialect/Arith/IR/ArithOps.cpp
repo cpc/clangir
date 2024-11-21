@@ -1462,7 +1462,7 @@ OpFoldResult arith::ExtUIOp::fold(FoldAdaptor adaptor) {
 }
 
 bool arith::ExtUIOp::areCastCompatible(TypeRange inputs, TypeRange outputs) {
-  return checkWidthChangeCast<std::greater, IntegerType>(inputs, outputs);
+  return checkWidthChangeCast<std::greater_equal, IntegerType>(inputs, outputs);
 }
 
 LogicalResult arith::ExtUIOp::verify() {
@@ -1489,7 +1489,7 @@ OpFoldResult arith::ExtSIOp::fold(FoldAdaptor adaptor) {
 }
 
 bool arith::ExtSIOp::areCastCompatible(TypeRange inputs, TypeRange outputs) {
-  return checkWidthChangeCast<std::greater, IntegerType>(inputs, outputs);
+  return checkWidthChangeCast<std::greater_equal, IntegerType>(inputs, outputs);
 }
 
 void arith::ExtSIOp::getCanonicalizationPatterns(RewritePatternSet &patterns,

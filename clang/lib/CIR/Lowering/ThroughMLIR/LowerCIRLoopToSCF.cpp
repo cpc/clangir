@@ -244,7 +244,18 @@ mlir::Value SCFLoop::findIVInitValue() {
   auto remapAddr = rewriter->getRemappedValue(ivAddr);
   if (!remapAddr)
     return nullptr;
-  if (!remapAddr.hasOneUse())
+  auto parentScopeOp = forOp->getParentOp();
+  int useCounter = 0;
+  for (mlir::Operation *remapAddrUser : remapAddr.getUsers()) {
+    auto directAncestorOfOp = remapAddrUser;
+    while ((directAncestorOfOp = directAncestorOfOp->getParentOp())) {
+      if (directAncestorOfOp == parentScopeOp) {
+        useCounter++;
+        break;
+      }
+    }
+  }
+  if (useCounter != 1)
     return nullptr;
   auto memrefStore = dyn_cast<mlir::memref::StoreOp>(*remapAddr.user_begin());
   if (!memrefStore)
