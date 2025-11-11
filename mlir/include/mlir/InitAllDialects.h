@@ -98,6 +98,7 @@
 #include "mlir/Dialect/Vector/Transforms/SubsetOpInterfaceImpl.h"
 #include "mlir/Dialect/X86Vector/X86VectorDialect.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
+#include "mlir/Polygeist/Dialect/Dialect.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/Interfaces/CastInterfaces.h"
 #include "mlir/Target/LLVM/NVVM/Target.h"
@@ -139,6 +140,7 @@ inline void registerAllDialects(DialectRegistry &registry) {
                   omp::OpenMPDialect,
                   pdl::PDLDialect,
                   pdl_interp::PDLInterpDialect,
+                  polygeist::PolygeistDialect,
                   ptr::PtrDialect,
                   quant::QuantDialect,
                   ROCDL::ROCDLDialect,
