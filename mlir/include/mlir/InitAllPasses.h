@@ -46,6 +46,7 @@
 #include "mlir/Dialect/Transform/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/Dialect/XeGPU/Transforms/Passes.h"
+#include "mlir/Polygeist/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
 #include <cstdlib>
@@ -83,6 +84,7 @@ inline void registerAllPasses() {
   memref::registerMemRefPasses();
   mesh::registerMeshPasses();
   ml_program::registerMLProgramPasses();
+  polygeist::registerPolygeistTransformsPasses();
   quant::registerQuantPasses();
   registerSCFPasses();
   registerShapePasses();
