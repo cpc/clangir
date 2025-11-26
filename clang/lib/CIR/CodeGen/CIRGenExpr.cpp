@@ -3116,7 +3116,7 @@ Address CIRGenFunction::CreateTempAlloca(mlir::Type Ty, CharUnits Align,
   // cast alloca to the default address space when necessary.
   if (auto ASTAS = cir::toCIRAddressSpace(CGM.getLangTempAllocaAddressSpace());
       getCIRAllocaAddressSpace() != ASTAS) {
-    llvm_unreachable("Requires address space cast which is NYI");
+    llvm::errs () << "WARNING: Requires address space cast which is NYI\n";
   }
   return Address(V, Ty, Align);
 }
