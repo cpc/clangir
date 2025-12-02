@@ -1,4 +1,4 @@
-// RUN: mlir-opt --pocl-distribute-barriers="method=distribute" --allow-unregistered-dialect --canonicalize --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --polygeist-distribute-barriers="method=distribute" --allow-unregistered-dialect --canonicalize --split-input-file %s | FileCheck %s
 
 module {
   func.func private @print()

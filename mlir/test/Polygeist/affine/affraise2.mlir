@@ -1,4 +1,4 @@
-// RUN: mlir-opt --pocl-raise-to-affine --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --polygeist-raise-to-affine --split-input-file %s | FileCheck %s
 
 module {
   func.func @main(%12 : i1, %14 : i32, %18 : memref<?xf32>, %19 : memref<?xf32> ) {

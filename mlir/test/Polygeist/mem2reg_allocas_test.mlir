@@ -1,4 +1,4 @@
-// RUN: mlir-opt --pocl-mem2reg --allow-unregistered-dialect --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --polygeist-mem2reg --allow-unregistered-dialect --split-input-file %s | FileCheck %s
 
 module {
   func.func @mm2_kernel1(%arg0: memref<?xf32>, %arg1: memref<?xf32>, %arg2: memref<?xf32>, %arg3: i32, %arg4: i32, %arg5: i32, %arg6: i32, %arg7: f32, %arg8: f32) attributes {gpu.kernel} {

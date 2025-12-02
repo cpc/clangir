@@ -1,4 +1,4 @@
-// RUN: mlir-opt --pocl-affine-cfg -allow-unregistered-dialect --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --polygeist-affine-cfg -allow-unregistered-dialect --split-input-file %s | FileCheck %s
 
 module {
   func.func @slt(%arg0: index) {

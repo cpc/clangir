@@ -1,5 +1,5 @@
-// RUN: mlir-opt --pocl-distribute-barriers="method=distribute.mincut.ifhoist" --split-input-file %s | FileCheck %s
-// RUN: mlir-opt --pocl-distribute-barriers="method=distribute.mincut.ifsplit" --split-input-file %s | FileCheck %s -check-prefix=IFSPLIT
+// RUN: mlir-opt --polygeist-distribute-barriers="method=distribute.mincut.ifhoist" --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --polygeist-distribute-barriers="method=distribute.mincut.ifsplit" --split-input-file %s | FileCheck %s -check-prefix=IFSPLIT
 
 
 module {

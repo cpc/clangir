@@ -1,4 +1,4 @@
-// RUN: mlir-opt --pocl-raise-to-affine -allow-unregistered-dialect --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --polygeist-raise-to-affine -allow-unregistered-dialect --split-input-file %s | FileCheck %s
 
 module {
   func.func @withinif(%arg0: memref<?xf64>, %arg1: i32, %arg2: memref<?xf64>, %arg3: i1) {

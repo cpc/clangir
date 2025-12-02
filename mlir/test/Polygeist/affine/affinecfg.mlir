@@ -1,4 +1,4 @@
-// RUN: mlir-opt --pocl-affine-cfg --split-input-file --allow-unregistered-dialect %s | FileCheck %s
+// RUN: mlir-opt --polygeist-affine-cfg --split-input-file --allow-unregistered-dialect %s | FileCheck %s
 module {
   func.func @_Z7runTestiPPc(%arg0: index, %arg2: memref<?xi32>) {
     %c0_i32 = arith.constant 0 : i32

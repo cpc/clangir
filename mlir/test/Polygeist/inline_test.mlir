@@ -1,4 +1,4 @@
-// RUN: mlir-opt --pocl-inliner --allow-unregistered-dialect --split-input-file %s | FileCheck %s
+// RUN: mlir-opt --polygeist-gpu-inliner --allow-unregistered-dialect --split-input-file %s | FileCheck %s
 
 module {
   func.func private @_Z13get_global_idj(%arg0: i32) -> i64 {
