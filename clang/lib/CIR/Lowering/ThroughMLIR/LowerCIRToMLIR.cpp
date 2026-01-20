@@ -310,15 +310,17 @@ public:
       rewriter.replaceOpWithNewOp<mlir::memref::AllocaOp>(
           op, memreftype, op.getAlignmentAttr());
     } else {
-      memreftype = mlir::MemRefType::get({1}, mlirType);
+      auto targetType = mlir::cast<mlir::MemRefType>(
+          getTypeConverter()->convertType(op.getResult().getType()));
+      memreftype = mlir::MemRefType::get({1}, targetType.getElementType(),
+                                         targetType.getLayout(),
+                                         targetType.getMemorySpace());
       auto allocaOp = mlir::memref::AllocaOp::create(
           rewriter, op.getLoc(), memreftype, op.getAlignmentAttr());
       // Cast from memref<1xMlirType> to memref<?xMlirType>
       // This is needed since Typeconverter produces memref<?xMlirType> for
       // non-array cir.ptrs, The cast will be eliminated later in
       // load/store-lowering.
-      auto targetType =
-          mlir::MemRefType::get({mlir::ShapedType::kDynamic}, mlirType);
       auto castOp = mlir::memref::CastOp::create(rewriter, op.getLoc(),
                                                  targetType, allocaOp);
       rewriter.replaceOp(op, castOp);
@@ -1203,8 +1205,13 @@ public:
     if (!convertedType)
       return mlir::failure();
     auto memrefType = mlir::dyn_cast<mlir::MemRefType>(convertedType);
-    if (!memrefType)
-      memrefType = mlir::MemRefType::get({1}, convertedType);
+    if (!memrefType) {
+      auto maybeAddrSpace = getTypeConverter()->convertTypeAttribute(
+          CIRSymType, op.getAddrSpaceAttr());
+      mlir::Attribute addrSpace = maybeAddrSpace.value_or(mlir::Attribute());
+      memrefType = mlir::MemRefType::get(
+          {1}, convertedType, mlir::MemRefLayoutAttrInterface(), addrSpace);
+    }
     // Add an optional alignment to the global memref.
     mlir::IntegerAttr memrefAlignment =
         op.getAlignment()
@@ -1300,9 +1307,15 @@ public:
         convertTypeForMemory(*getTypeConverter(), op.getType().getPointee());
     if (!globalOpType)
       return mlir::failure();
+    auto resultType = getTypeConverter()->convertType(op.getType());
     auto memrefType = mlir::dyn_cast<mlir::MemRefType>(globalOpType);
-    if (!memrefType)
-      memrefType = mlir::MemRefType::get({1}, globalOpType);
+    if (!memrefType) {
+      mlir::MemRefType resultTypeMemref =
+          mlir::cast<mlir::MemRefType>(resultType);
+      memrefType = mlir::MemRefType::get({1}, resultTypeMemref.getElementType(),
+                                         resultTypeMemref.getLayout(),
+                                         resultTypeMemref.getMemorySpace());
+    }
 
     auto symbol = op.getName();
     auto getGlobalOp = mlir::memref::GetGlobalOp::create(rewriter, op.getLoc(),
@@ -1314,9 +1327,8 @@ public:
       // Cast from memref<1xmlirType> to memref<?xmlirType>. This is needed
       // since Typeconverter produces memref<?xmlirType> for non-array cir.ptrs.
       // The cast will be eliminated later in load/store-lowering.
-      auto targetType = getTypeConverter()->convertType(op.getType());
       auto castOp = mlir::memref::CastOp::create(rewriter, op.getLoc(),
-                                                 targetType, getGlobalOp);
+                                                 resultType, getGlobalOp);
       rewriter.replaceOp(op, castOp);
     }
     return mlir::success();
@@ -1908,6 +1920,26 @@ void populateCIRToMLIRConversionPatterns(mlir::RewritePatternSet &patterns,
           converter, patterns.getContext());
 }
 
+static mlir::Attribute
+convertCIRLangAddrSpaceToGPU(cir::LangAddressSpaceAttr addrSpace) {
+  auto context = addrSpace.getContext();
+  switch (addrSpace.getValue()) {
+  case cir::LangAddressSpace::OffloadPrivate:
+    return mlir::gpu::AddressSpaceAttr::get(context,
+                                            mlir::gpu::AddressSpace::Private);
+  case cir::LangAddressSpace::OffloadLocal:
+    return mlir::gpu::AddressSpaceAttr::get(context,
+                                            mlir::gpu::AddressSpace::Workgroup);
+  case cir::LangAddressSpace::OffloadGlobal:
+    return mlir::gpu::AddressSpaceAttr::get(context,
+                                            mlir::gpu::AddressSpace::Global);
+  case cir::LangAddressSpace::OffloadConstant:
+  case cir::LangAddressSpace::OffloadGeneric:
+  case cir::LangAddressSpace::Default:
+    return mlir::Attribute();
+  }
+}
+
 static mlir::TypeConverter prepareTypeConverter() {
   mlir::TypeConverter converter;
   converter.addConversion([&](cir::PointerType type) -> mlir::Type {
@@ -1917,7 +1949,11 @@ static mlir::TypeConverter prepareTypeConverter() {
       return nullptr;
     if (isa<cir::ArrayType>(type.getPointee()))
       return ty;
-    return mlir::MemRefType::get({mlir::ShapedType::kDynamic}, ty);
+    auto maybeAddrSpace =
+        converter.convertTypeAttribute(type, type.getAddrSpace());
+    mlir::Attribute addrSpace = maybeAddrSpace.value_or(mlir::Attribute());
+    return mlir::MemRefType::get({mlir::ShapedType::kDynamic}, ty,
+                                 mlir::MemRefLayoutAttrInterface(), addrSpace);
   });
   converter.addConversion(
       [&](mlir::IntegerType type) -> mlir::Type { return type; });
@@ -1979,6 +2015,17 @@ static mlir::TypeConverter prepareTypeConverter() {
   });
   converter.addConversion(
       [&](cir::OpaqueType type) -> mlir::Type { llvm_unreachable("NYI"); });
+  converter.addTypeAttributeConversion(
+      [](mlir::Type, cir::TargetAddressSpaceAttr memorySpaceAttr) {
+        auto targetMemorySpace = memorySpaceAttr.getValue();
+        return mlir::IntegerAttr::get(
+            mlir::IntegerType::get(memorySpaceAttr.getContext(), 64),
+            targetMemorySpace);
+      });
+  converter.addTypeAttributeConversion(
+      [](mlir::Type, cir::LangAddressSpaceAttr memorySpaceAttr) {
+        return convertCIRLangAddrSpaceToGPU(memorySpaceAttr);
+      });
   return converter;
 }
 
