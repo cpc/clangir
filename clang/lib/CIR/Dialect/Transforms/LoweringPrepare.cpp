@@ -1661,6 +1661,7 @@ void LoweringPreparePass::lowerToMemCpy(StoreOp op) {
       cir::GlobalLinkageKind::PrivateLinkage);
   globalCst.setInitialValueAttr(cstOp.getValue());
   globalCst.setConstant(true);
+  globalCst.setAddrSpaceAttr(op.getAddr().getType().getAddrSpace());
 
   // Transform the store into a cir.copy.
   builder.setInsertionPointAfter(op.getOperation());
